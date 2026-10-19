@@ -108,6 +108,23 @@ export class ClusterGraph {
       out.push(`| ${n.host}:${n.port} | ${n.version || '?'} | ${auth} | ${n.setName || '—'} | ${dbs} |`);
     }
     out.push('');
+    out.push('## Data inventory (structure reconstructed from sampled documents)');
+    out.push('');
+    let anyData = false;
+    for (const n of this.nodes.values()) {
+      for (const [db, colls] of Object.entries(n.databases || {})) {
+        for (const [cname, meta] of Object.entries(colls)) {
+          anyData = true;
+          const fields = Object.entries(meta.fields || {}).map(([f, ts]) => `${f}: ${ts.join('|')}`).join(', ') || '—';
+          const idx = (meta.indexes || []).map((i) => i.name).join(', ') || '—';
+          out.push(`- \`${n.id}\` **${db}.${cname}** — ${meta.count} docs (sampled ${meta.sampled})`);
+          out.push(`  - fields: ${fields}`);
+          out.push(`  - indexes: ${idx}`);
+        }
+      }
+    }
+    if (!anyData) out.push('_no readable data_');
+    out.push('');
     out.push('## Harvested credentials');
     out.push('');
     if (this.credentials.length) {

@@ -164,16 +164,25 @@ function render() {
     svg.appendChild(g); n.fresh = false;
   }
 }
+function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 function showNode(id) {
   if (!finalData) return;
   const n = finalData.nodes.find((x) => x.id === id); if (!n) return;
   const mine = finalData.findings.filter((f) => f.nodeId === id);
-  const dbs = Object.entries(n.databases || {}).map(([db, cs]) => db + ' (' + Object.keys(cs).join(', ') + ')').join(' · ') || '—';
+  let inv = '';
+  for (const [db, colls] of Object.entries(n.databases || {})) {
+    for (const [cname, meta] of Object.entries(colls)) {
+      const fields = Object.entries(meta.fields || {}).map(([f, ts]) => '<span class="cred" style="background:#14263f;border-color:#2c4a75;color:#bcd6ff">' + esc(f) + ': ' + esc(ts.join('|')) + '</span>').join('');
+      const idx = (meta.indexes || []).map((i) => i.name).join(', ') || '—';
+      inv += '<div style="margin-top:10px"><b>' + esc(db) + '.' + esc(cname) + '</b> <span style="color:var(--dim)">' + meta.count + ' docs · indexes: ' + esc(idx) + '</span><div style="margin-top:5px">' + (fields || '<span style="color:var(--dim)">no documents sampled</span>') + '</div>' +
+        (meta.sample ? '<pre>' + esc(JSON.stringify(meta.sample, null, 1)) + '</pre>' : '') + '</div>';
+    }
+  }
   $('detail').className = 'card show';
-  $('detail').innerHTML = '<h2>' + id + '</h2><div style="font-size:13.5px;line-height:1.55">Auth: <b>' +
-    (n.authRequired ? 'required' + (n.accessCred ? ' — entered as ' + n.accessCred.user : ' — no access gained') : 'NONE — open to anyone') +
-    '</b><br>Databases: ' + dbs + '<br>Discovered via: ' + (n.discoveredVia || '—') + '</div>' +
-    (mine.length ? '<pre>' + mine.map((f) => '[' + f.severity + '] ' + f.title + '\n  → ' + f.remediation).join('\n\n') + '</pre>' : '<p style="color:var(--dim)">No findings on this node.</p>');
+  $('detail').innerHTML = '<h2>' + esc(id) + ' — data &amp; structure</h2><div style="font-size:13.5px;line-height:1.55">Auth: <b>' +
+    (n.authRequired ? 'required' + (n.accessCred ? ' — entered as ' + esc(n.accessCred.user) : ' — no access gained') : 'NONE — open to anyone') +
+    '</b> · Discovered via: ' + esc(n.discoveredVia || '—') + '</div>' + (inv || '<p style="color:var(--dim)">No readable data on this node.</p>') +
+    (mine.length ? '<pre>' + esc(mine.map((f) => '[' + f.severity + '] ' + f.title + '\n  → ' + f.remediation).join('\n\n')) + '</pre>' : '<p style="color:var(--dim)">No findings on this node.</p>');
 }
 function addFeed(html) {
   const empty = $('feedEmpty'); if (empty) empty.remove();

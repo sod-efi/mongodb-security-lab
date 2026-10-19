@@ -60,7 +60,7 @@ export function buildHtml({ before, after = null }) {
 "    var h='<h2>'+esc(n.id)+'</h2>';",
 "    h+='<p class=\"k\">mongod '+esc(n.version||'?')+' · '+(n.authRequired===false?'no auth':'auth required')+(n.setName?(' · replica set '+esc(n.setName)):'')+'</p>';",
 "    var dbs=n.databases||{};var dbk=Object.keys(dbs);",
-"    if(dbk.length){h+='<h3>Data read</h3>';dbk.forEach(function(db){h+='<div class=\"db\"><b>'+esc(db)+'</b><ul>';Object.keys(dbs[db]).forEach(function(c){h+='<li>'+esc(c)+' <span class=\"muted\">('+dbs[db][c].count+' docs)</span></li>';});h+='</ul></div>';});}",
+"    if(dbk.length){h+='<h3>Data &amp; structure read</h3>';dbk.forEach(function(db){h+='<div class=\"db\"><b>'+esc(db)+'</b><ul>';Object.keys(dbs[db]).forEach(function(c){var m=dbs[db][c];var fl=Object.keys(m.fields||{});h+='<li>'+esc(c)+' <span class=\"muted\">('+m.count+' docs)</span>'+(fl.length?'<br><span class=\"muted\">fields: '+fl.map(function(f){return esc(f)+': '+esc((m.fields[f]||[]).join('|'));}).join(', ')+'</span>':'')+'</li>';});h+='</ul></div>';});}",
 "    else{h+='<p class=\"muted\">No data read from this node.</p>';}",
 "    var fs=run.findings.filter(function(f){return f.nodeId===id;});",
 "    if(fs.length){h+='<h3>Findings</h3>';fs.sort(function(a,b){return SEVIDX[a.severity]-SEVIDX[b.severity];}).forEach(function(f){h+='<div class=\"f\"><span class=\"sev\" style=\"background:'+COLOR[f.severity]+'\">'+f.severity+'</span> <b>'+esc(f.title)+'</b><p>'+esc(f.detail)+'</p><p class=\"rem\">Fix: '+esc(f.remediation)+'</p></div>';});}",
