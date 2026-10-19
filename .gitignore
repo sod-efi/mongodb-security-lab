@@ -1,4 +1,5 @@
 node_modules/
+.tmp-lab/
 output/*
 !output/.gitkeep
 .mongodb-binaries/

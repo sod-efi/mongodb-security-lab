@@ -65,3 +65,25 @@ There is no automated test suite; verification is the demos above plus
   that enumerated the node. This keeps learning from changing results.
 - **Phone-size screenshots:** the app's built-in browser renders local files as
   static snapshots (no JS); serve the report over a tiny HTTP server to view it.
+- **Startup races the replica-set election (fixed 2026-10-19):** on the
+  first-ever run, `seedDb`'s first write can land while `rs-edge` is still
+  electing and die with `InterruptedDueToReplStateChange`, crashing lab
+  startup. `seedDb` in `lab/lab.mjs` now retries transient replica-state
+  errors with backoff — seeding is idempotent (delete-then-insert), so a
+  whole-seed retry is safe. Do not remove the retry as "cleanup".
+  The same fragility exists one step earlier: `MongoMemoryReplSet.create`
+  waits a hard-coded 30s for a primary (no option to raise it), and on a
+  slow or just-booted machine it throws `WaitForPrimaryTimeoutError`.
+  `createReplSetWithRetry` in `lab/lab.mjs` retries the whole create up
+  to 3 times; creation has no side effects until it succeeds.
+- **Small `/tmp` breaks the lab (fixed 2026-10-19):**
+  `mongodb-memory-server` puts each node's data dir under the system temp
+  dir, four nodes total ~500 MB, and a crashed run leaves its `mongo-mem-*`
+  dirs behind. On a machine where `/tmp` is a small tmpfs (512 MB in the
+  test VM) the lab filled it on its own — the last `mongod` died with an
+  opaque `fassert() failure`, and the orphans then broke every later run.
+  `lab/lab.mjs` now defaults `TMPDIR` to a project-local `.tmp-lab/` dir
+  (git-ignored) when the user has not set `TMPDIR` themselves, so the data
+  lives on the project's disk. An explicit `TMPDIR` is always respected.
+  If you hit the old failure mode on an unpatched checkout, delete stale
+  `/tmp/mongo-mem-*` dirs and re-run.

@@ -18,7 +18,24 @@
  */
 import { MongoMemoryServer, MongoMemoryReplSet } from 'mongodb-memory-server-core';
 import { MongoClient } from 'mongodb';
+import { mkdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { LAB_PORTS, CREDS, NODES, seedData } from './topology.mjs';
+
+// mongodb-memory-server puts every node's data dir under os.tmpdir().
+// Four mongod data dirs total ~500 MB, which silently fills a small
+// tmpfs /tmp (512 MB in one test VM) — mongod then dies mid-demo with an
+// opaque fassert() failure, and a crashed run's orphan dirs make every
+// later run fail too. Unless the user picked a TMPDIR themselves,
+// default the data root to a project-local dir on the same disk as the
+// code, where there is room. os.tmpdir() reads TMPDIR per call, so
+// setting it here, before any server is created, is enough.
+if (!process.env.TMPDIR) {
+  const tmpRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '.tmp-lab');
+  mkdirSync(tmpRoot, { recursive: true });
+  process.env.TMPDIR = tmpRoot;
+}
 
 // Strong, unique, lab-only credentials for the hardened variant. None match the
 // tool's default-credential list, and none are stored anywhere readable.
@@ -28,15 +45,35 @@ const HARDENED = {
   C: { root: { u: 'whadmin', p: 'Cc9#dF4!zX7vNqGt' }, extra: [{ u: 'etl_svc', p: 'Ee1$gH5!mB3rTyUo', db: 'warehouse', role: 'readWrite' }] },
 };
 
+const REPL_TRANSIENT = /InterruptedDueToReplStateChange|NotPrimary|PrimarySteppedDown|node is recovering/i;
+
 async function seedDb(uri, dbName, collections) {
-  const client = new MongoClient(uri, { serverSelectionTimeoutMS: 20000 });
-  await client.connect();
-  const db = client.db(dbName);
-  for (const [coll, docs] of Object.entries(collections)) {
-    await db.collection(coll).deleteMany({});
-    if (docs.length) await db.collection(coll).insertMany(docs);
+  // Seeding is idempotent (delete-then-insert), so it is safe to retry whole.
+  // A fresh replica set can still be electing/stepping down when the first
+  // write lands, which fails it with InterruptedDueToReplStateChange
+  // (verified 2026-10-19: first-ever demo run crashed in seedDb on exactly
+  // this). Retry transient replica-state errors with backoff instead of
+  // crashing the lab startup.
+  let lastErr;
+  for (let attempt = 1; attempt <= 8; attempt++) {
+    const client = new MongoClient(uri, { serverSelectionTimeoutMS: 20000 });
+    try {
+      await client.connect();
+      const db = client.db(dbName);
+      for (const [coll, docs] of Object.entries(collections)) {
+        await db.collection(coll).deleteMany({});
+        if (docs.length) await db.collection(coll).insertMany(docs);
+      }
+      return;
+    } catch (err) {
+      lastErr = err;
+      if (!REPL_TRANSIENT.test(`${err.codeName || ''} ${err.message || ''}`)) throw err;
+      if (attempt < 8) await new Promise((r) => setTimeout(r, 500 * attempt));
+    } finally {
+      try { await client.close(); } catch { /* ignore */ }
+    }
   }
-  await client.close();
+  throw lastErr;
 }
 
 async function standaloneAuth(port, root, extras, seedMap) {
@@ -59,6 +96,25 @@ async function standaloneAuth(port, root, extras, seedMap) {
   return srv;
 }
 
+async function createReplSetWithRetry(opts) {
+  // mongodb-memory-server waits a hard-coded 30s for a primary during
+  // replSet init, with no option to raise it. On a slow or just-booted
+  // machine the election can miss that window (WaitForPrimaryTimeoutError,
+  // verified 2026-10-19) and the whole demo dies before it starts. Creation
+  // is side-effect free until it succeeds, so retry the whole create with
+  // fresh instances instead of asking the user to re-run by hand.
+  let lastErr;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      return await MongoMemoryReplSet.create(opts);
+    } catch (err) {
+      lastErr = err;
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 2000 * attempt));
+    }
+  }
+  throw lastErr;
+}
+
 export async function startLab({ hardened = false, ports = null, log = () => {} } = {}) {
   const seeds = seedData({ mode: 'local' });
   const servers = [];
@@ -67,7 +123,7 @@ export async function startLab({ hardened = false, ports = null, log = () => {} 
   if (!hardened) {
     // NODE A: no-auth 2-member replica set (foothold + topology leak + secrets)
     log(`NODE A: no-auth replica set ${NODES.A.replSet} on ${P.A} + ${P.A2}`);
-    const a = await MongoMemoryReplSet.create({
+    const a = await createReplSetWithRetry({
       replSet: { name: NODES.A.replSet, count: 2 },
       instanceOpts: [{ port: P.A, ip: '127.0.0.1' }, { port: P.A2, ip: '127.0.0.1' }],
     });
