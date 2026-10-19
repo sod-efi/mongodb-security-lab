@@ -1,0 +1,61 @@
+# Intentionally-vulnerable MongoDB lab — AUTHORIZED LAB USE ONLY.
+#
+# Three nodes on a private docker network, mirroring the no-Docker runner:
+#   node-a-appdb      no auth           -> foothold + plaintext downstream creds
+#   node-b-reporting  weak admin:admin  -> default-credential compromise
+#   node-c-warehouse  auth (leaked pw)  -> crown-jewel PII/payments
+#
+# Bring it up:        docker compose -f lab/docker-compose.yml up -d
+# Run the assessment: docker compose -f lab/docker-compose.yml --profile tools run --rm recon
+# Tear it down:       docker compose -f lab/docker-compose.yml down -v
+#
+# Nothing is published to 0.0.0.0 by default beyond localhost; the assessment
+# runs INSIDE the lab network (the "attacker on the LAN" position).
+
+services:
+  node-a-appdb:
+    image: mongo:7
+    container_name: lab-node-a
+    command: ["mongod", "--noauth", "--bind_ip_all"]
+    ports: ["127.0.0.1:27018:27017"]
+    volumes:
+      - ./docker-init/a-appdb.js:/docker-entrypoint-initdb.d/seed.js:ro
+    networks: [labnet]
+
+  node-b-reporting:
+    image: mongo:7
+    container_name: lab-node-b
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin      # weak / default
+      MONGO_INITDB_ROOT_PASSWORD: admin
+    ports: ["127.0.0.1:27019:27017"]
+    volumes:
+      - ./docker-init/b-reporting.js:/docker-entrypoint-initdb.d/seed.js:ro
+    networks: [labnet]
+
+  node-c-warehouse:
+    image: mongo:7
+    container_name: lab-node-c
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: whadmin
+      MONGO_INITDB_ROOT_PASSWORD: "W4reh0use#2024-Str0ng"
+    ports: ["127.0.0.1:27020:27017"]
+    volumes:
+      - ./docker-init/c-warehouse.js:/docker-entrypoint-initdb.d/seed.js:ro
+    networks: [labnet]
+
+  # The assessment tool, run from inside the lab network so service names
+  # resolve exactly like an attacker who has a foothold on the LAN.
+  recon:
+    image: node:24-alpine
+    working_dir: /app
+    volumes:
+      - ../:/app
+    networks: [labnet]
+    profiles: ["tools"]
+    depends_on: [node-a-appdb, node-b-reporting, node-c-warehouse]
+    command: ["sh", "-c", "npm install --no-audit --no-fund >/dev/null 2>&1 && node toolkit/mongo-recon.mjs --seed node-a-appdb:27017"]
+
+networks:
+  labnet:
+    driver: bridge
