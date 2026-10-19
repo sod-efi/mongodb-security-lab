@@ -4,37 +4,51 @@
  * Mermaid network diagram.
  */
 export class ClusterGraph {
-  constructor() {
+  constructor({ onEvent = null } = {}) {
     this.nodes = new Map();   // "host:port" -> node record
     this.edges = [];          // { from, to, reason }
     this.findings = [];       // { nodeId, severity, title, detail, remediation }
     this.credentials = [];    // { user, pass, scope, foundAt }
+    this.onEvent = onEvent;   // optional live-progress hook (used by the app UI); default off
+  }
+
+  emit(type, payload) {
+    if (!this.onEvent) return;
+    try { this.onEvent({ type, ...payload }); } catch { /* a listener must never break an assessment */ }
   }
 
   key(host, port) { return `${host}:${port}`; }
 
   upsert(host, port, attrs = {}) {
     const id = this.key(host, port);
+    const isNew = !this.nodes.has(id);
     const cur = this.nodes.get(id) || { id, host, port, databases: {} };
     this.nodes.set(id, { ...cur, ...attrs });
+    if (isNew) this.emit('node', { node: { ...this.nodes.get(id) } });
     return id;
   }
 
   edge(fromId, toId, reason) {
     if (!fromId || fromId === toId) return; // no seed predecessor / no self-loops
     if (this.edges.some((e) => e.from === fromId && e.to === toId && e.reason === reason)) return;
-    this.edges.push({ from: fromId, to: toId, reason });
+    const e = { from: fromId, to: toId, reason };
+    this.edges.push(e);
+    this.emit('edge', { edge: e });
   }
 
   addFinding(nodeId, severity, title, detail, remediation) {
-    this.findings.push({ nodeId, severity, title, detail, remediation });
+    const f = { nodeId, severity, title, detail, remediation };
+    this.findings.push(f);
+    this.emit('finding', { finding: f });
   }
 
   addCredential(cred, foundAt) {
     if (!cred?.user) return;
     const dup = this.credentials.find((c) => c.user === cred.user && c.pass === cred.pass);
     if (dup) return;
-    this.credentials.push({ user: cred.user, pass: cred.pass, scope: cred.authSource || cred.db || 'admin', foundAt });
+    const c = { user: cred.user, pass: cred.pass, scope: cred.authSource || cred.db || 'admin', foundAt };
+    this.credentials.push(c);
+    this.emit('credential', { credential: c });
   }
 
   toJSON() {

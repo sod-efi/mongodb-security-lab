@@ -34,6 +34,7 @@ export async function assess({
   learn = true,
   learnPath = DEFAULT_LEARN_PATH,
   resetLearning = false,
+  onEvent = null,
 } = {}) {
   const log = quiet ? () => {} : (...a) => console.log(...a);
 
@@ -50,7 +51,7 @@ export async function assess({
   const reachable = (host, port) =>
     (lab && host !== '127.0.0.1' && host !== 'localhost') ? { host: '127.0.0.1', port } : { host, port };
 
-  const graph = new ClusterGraph();
+  const graph = new ClusterGraph({ onEvent });
   const seen = new Set();
   const credPool = [...extraCreds];
   const queue = [];

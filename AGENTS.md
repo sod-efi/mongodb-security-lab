@@ -87,3 +87,6 @@ There is no automated test suite; verification is the demos above plus
   lives on the project's disk. An explicit `TMPDIR` is always respected.
   If you hit the old failure mode on an unpatched checkout, delete stale
   `/tmp/mongo-mem-*` dirs and re-run.
+
+## The app (production-app demo)
+`npm run app` → http://127.0.0.1:8900 (`app/server.mjs` + `app/index.html`, zero extra deps). Streams a live lab assessment to the UI over SSE: the engine emits progress through an optional `onEvent` hook on ClusterGraph (`toolkit/lib/graph.mjs`) — off by default, CLI behavior unchanged. Two phases: `before` (one seed entry point, full pivot) and `after` (hardened cluster, port-scan discovery). Server allows one run at a time (409 while busy); targets are generated internally (the loopback lab only). Gotcha baked into the server: the SSE `done` event is sent only AFTER lab teardown completes — the client re-arms its buttons on `done`, so sending it earlier lets an immediate follow-up run hit the busy guard and stall.

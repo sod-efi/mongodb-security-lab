@@ -5,6 +5,7 @@
   "type": "module",
   "description": "MongoDB security assessment tool: vulnerable cluster, recon + lateral movement, interactive report, self-improvement loop.",
   "scripts": {
+    "app": "node app/server.mjs",
     "lab:up": "node lab/start-lab.mjs",
     "assess": "node toolkit/mongo-recon.mjs",
     "demo": "node lab/start-lab.mjs --run-demo",
