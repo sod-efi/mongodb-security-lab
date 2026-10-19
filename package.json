@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Authorized, self-contained lab for assessing MongoDB node misconfigurations and demonstrating lateral movement across a small cluster. Lab use only.",
+  "description": "MongoDB security assessment tool: vulnerable cluster, recon + lateral movement, interactive report, self-improvement loop.",
   "scripts": {
     "lab:up": "node lab/start-lab.mjs",
     "assess": "node toolkit/mongo-recon.mjs",
