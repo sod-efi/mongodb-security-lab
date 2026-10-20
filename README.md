@@ -66,6 +66,20 @@ Each pass logs one line per target with the drift vs the last run
 used only to authenticate to your own nodes; results are redacted
 before they leave the machine, same contract as the app.
 
+## License
+
+The scanner, app, agent, toolkit, and lab are licensed under the
+**Business Source License 1.1** (see `LICENSE`): free to run in
+production against MongoDB systems you own or are authorized in
+writing to assess — read every line before you run it, that's the
+point — but you may not offer it to third parties as a hosted or
+subscription service or ship it in a competing product. On
+October 20, 2030 each version converts to the Apache License 2.0.
+
+The **dashboard** is proprietary (`dashboard/LICENSE`): its code is
+here so the ingest contract can be audited, and the hosted service is
+operated by us.
+
 ## Command line
 
 ```bash

@@ -1,0 +1,10 @@
+© 2026 SaveOnDev. All rights reserved.
+
+The dashboard in this directory is proprietary software. It is published
+in this repository so the results-ingest contract can be audited — you
+can read exactly what the dashboard receives, stores, and strips.
+
+No license is granted to copy, deploy, modify, or use the dashboard in
+production. Running it locally to evaluate the scanner's results flow is
+permitted. The hosted dashboard service is operated by the Licensor and
+is offered under separate commercial terms.
