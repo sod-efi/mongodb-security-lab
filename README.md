@@ -4,6 +4,15 @@ MongoDB security assessment tool: vulnerable cluster, recon + lateral movement, 
 
 ## The app — start here
 
+One-command download (everything runs on your machine; the scanner makes
+no outbound calls at runtime):
+
+```bash
+docker compose up --build    # → http://127.0.0.1:8900
+```
+
+or without Docker:
+
 ```bash
 npm install && npm run app
 ```
@@ -15,6 +24,19 @@ they are discovered, findings stream in as they are proven, credentials
 land as they are harvested. When it finishes, **Apply hardening &
 re-scan** runs the same scanner against the hardened cluster and the
 picture flips green.
+
+## The dashboard (optional cloud layer)
+
+```bash
+npm run dashboard            # → http://127.0.0.1:8901
+```
+
+After a scan in the app, **Send this result to my dashboard** shows you
+the exact payload first — passwords are stripped before sending, and the
+dashboard strips them again on arrival. The dashboard keeps every run:
+fleet view across estates, critical-findings trend, and a diff between
+consecutive scans (what got fixed, what appeared). Results only — the
+scanner itself never leaves your network.
 
 ## Command line
 

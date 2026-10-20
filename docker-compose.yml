@@ -1,0 +1,8 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8900:8900"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8900

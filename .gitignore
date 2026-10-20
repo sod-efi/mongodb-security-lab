@@ -5,3 +5,5 @@ output/*
 .mongodb-binaries/
 *.log
 toolkit/.memory/
+
+dashboard/data/

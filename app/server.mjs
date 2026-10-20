@@ -25,9 +25,21 @@ const INDEX = readFileSync(join(HERE, 'index.html'), 'utf8');
 const PORT = Number(process.env.PORT || 8900);
 
 let busy = false;
+let lastRun = null; // { phase, payload } of the most recent finished run
 
 function sse(res, event, data) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+}
+
+// The trust contract, in code: this is the ONLY transformation applied
+// before a result may leave the machine, and the UI shows the user the
+// exact redacted payload before sending. Passwords never leave; the
+// dashboard strips them again server-side as defense in depth.
+function redactRun(payload) {
+  const clone = JSON.parse(JSON.stringify(payload));
+  for (const c of clone.credentials || []) if ('pass' in c) c.pass = '••• redacted •••';
+  for (const n of clone.nodes || []) if (n.accessCred && 'pass' in n.accessCred) n.accessCred.pass = '••• redacted •••';
+  return clone;
 }
 
 async function runPhase(res, phase) {
@@ -43,7 +55,8 @@ async function runPhase(res, phase) {
       sse(res, 'status', { message: 'Scanning the hardened cluster — watch what the entry point can still reach…' });
       json = await assess({ discover: '127.0.0.1', ports: '27030-27033', lab: true, learn: false, quiet: true, onEvent });
     } finally { await lab.teardown(); }
-    sse(res, 'done', { phase, summary: json.summary, nodes: json.nodes, edges: json.edges, credentials: json.credentials, findings: json.findings });
+    lastRun = { phase, payload: { generatedAt: json.generatedAt, summary: json.summary, nodes: json.nodes, edges: json.edges, credentials: json.credentials, findings: json.findings } };
+    sse(res, 'done', { phase, ...lastRun.payload });
   } else {
     sse(res, 'status', { message: 'Starting the demo cluster…' });
     const lab = await startLab({ hardened: false });
@@ -53,7 +66,8 @@ async function runPhase(res, phase) {
       sse(res, 'status', { message: `One entry point: ${seed}. Everything else, the tool has to discover itself…`, seed });
       json = await assess({ seed, lab: true, learn: false, quiet: true, onEvent });
     } finally { await lab.teardown(); }
-    sse(res, 'done', { phase, summary: json.summary, nodes: json.nodes, edges: json.edges, credentials: json.credentials, findings: json.findings });
+    lastRun = { phase, payload: { generatedAt: json.generatedAt, summary: json.summary, nodes: json.nodes, edges: json.edges, credentials: json.credentials, findings: json.findings } };
+    sse(res, 'done', { phase, ...lastRun.payload });
   }
 }
 
@@ -62,6 +76,33 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(INDEX);
+    return;
+  }
+  if (url.pathname === '/api/last-run') {
+    if (!lastRun) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'no run yet' })); return; }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ phase: lastRun.phase, payload: redactRun(lastRun.payload) }));
+    return;
+  }
+  if (url.pathname === '/api/send' && req.method === 'POST') {
+    if (!lastRun) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'no run yet' })); return; }
+    let body = '';
+    for await (const chunk of req) body += chunk;
+    try {
+      const { url: dashUrl, token, estate } = JSON.parse(body || '{}');
+      const target = String(dashUrl || '').replace(/\/$/, '') + '/api/ingest';
+      const r = await fetch(target, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token || ''}` },
+        body: JSON.stringify({ estate: String(estate || 'unnamed-estate'), phase: lastRun.phase, run: redactRun(lastRun.payload) }),
+      });
+      const text = await r.text();
+      res.writeHead(r.ok ? 200 : 502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: r.ok, status: r.status, dashboard: text.slice(0, 300) }));
+    } catch (err) {
+      res.writeHead(502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: String(err?.message || err) }));
+    }
     return;
   }
   if (url.pathname === '/api/run') {
@@ -82,6 +123,7 @@ const server = createServer(async (req, res) => {
   res.end('not found');
 });
 
-server.listen(PORT, '127.0.0.1', () => {
-  console.log(`mongodb-security-lab app → http://127.0.0.1:${PORT}`);
+const HOST = process.env.HOST || '127.0.0.1';
+server.listen(PORT, HOST, () => {
+  console.log(`mongodb-security-lab app → http://${HOST}:${PORT}`);
 });
