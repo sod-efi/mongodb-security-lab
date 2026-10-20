@@ -66,6 +66,12 @@
   #detail.show{display:block}
   #detail pre{background:#0a0f22;border:1px solid var(--line);border-radius:10px;padding:10px;font-size:12px;overflow:auto;color:#c6d2f2}
   .empty{color:var(--dim);font-size:13.5px;border:1px dashed var(--line);border-radius:11px;padding:14px;text-align:center}
+  .tabbtn{background:var(--panel);border:1px solid var(--line);border-bottom:0;color:var(--dim);border-radius:12px 12px 0 0;padding:9px 18px;font-size:14.5px;font-weight:600;cursor:pointer}
+  .tabbtn.active{color:var(--txt);background:#182242}
+  #demoBar,#ownBar{margin-top:0;border-radius:0 14px 14px 14px}
+  .fld{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--dim)}
+  .fld input,.fld select{margin-top:4px;background:#0a0f22;border:1px solid var(--line);border-radius:9px;color:var(--txt);padding:8px 10px;font-size:14.5px;text-transform:none;letter-spacing:0;width:190px}
+  .bar .cta{align-self:flex-start;margin-top:14px;padding:13px 22px}
 </style>
 </head>
 <body>
@@ -75,7 +81,11 @@
     <p>Give it <b>one entry point</b>. It reconstructs the full network &amp; database picture from there — live.</p>
   </header>
 
-  <div class="bar">
+  <div style="display:flex;gap:8px;margin:20px 0 0">
+    <button id="tabDemo" class="tabbtn active">Demo cluster</button>
+    <button id="tabOwn" class="tabbtn">Assess my own cluster</button>
+  </div>
+  <div class="bar" id="demoBar">
     <div class="entry">
       <label>Entry point — the only thing you provide</label>
       <div class="seed" id="seed">— press run, the demo cluster provides one —</div>
@@ -83,6 +93,32 @@
     </div>
     <button class="cta" id="runBtn">▶&nbsp; Run live assessment</button>
     <button class="cta blue" id="fixBtn" style="display:none">Apply hardening &amp; re-scan</button>
+  </div>
+  <div class="bar" id="ownBar" style="display:none">
+    <div class="entry" style="flex:1">
+      <label>Your cluster — assessed read-only, from here</label>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px">
+        <label class="fld">Host (IP or localhost)<br><input id="ownHost" value="127.0.0.1"></label>
+        <label class="fld">Port<br><input id="ownPort" value="27017" style="width:90px"></label>
+        <label class="fld">How to start<br>
+          <select id="ownMode">
+            <option value="seed">From this one node (pivot)</option>
+            <option value="scan">Port-scan the host</option>
+          </select></label>
+        <label class="fld" id="rangeWrap" style="display:none">Port range<br><input id="ownRange" value="27017-27030" style="width:120px"></label>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
+        <label class="fld">Credential (optional) — user<br><input id="ownUser" placeholder="e.g. admin"></label>
+        <label class="fld">Password<br><input id="ownPass" type="password" placeholder="never stored, never sent anywhere"></label>
+        <label class="fld">Auth DB<br><input id="ownAuthDb" value="admin" style="width:90px"></label>
+      </div>
+      <label style="display:block;margin-top:12px;font-size:13px;color:var(--dim);text-transform:none;letter-spacing:0">
+        <input type="checkbox" id="ownAuth" style="vertical-align:-1px"> This target is <b style="color:var(--txt)">external/public</b> and I own it or am authorized to test it.
+        <span style="display:block;margin-top:3px">Without this, only loopback &amp; private (RFC1918) addresses are accepted — the engine refuses anything else, for every node it pivots to. Credentials you type live only in this server's memory for the run, then are gone.</span>
+      </label>
+      <div id="ownError" style="color:var(--red);font-size:13.5px;margin-top:8px"></div>
+    </div>
+    <button class="cta" id="ownRunBtn">▶&nbsp; Assess my cluster</button>
   </div>
 
   <div class="stats">
@@ -210,11 +246,11 @@ function reset() {
   $('creds').innerHTML = ''; $('verdict').className = ''; $('verdict').style.display = 'none'; $('sendPanel').style.display = 'none';
   $('detail').className = ''; svg.innerHTML = '';
 }
-function run(phase) {
+function run(url) {
   reset();
-  $('runBtn').disabled = true; $('fixBtn').disabled = true;
+  $('runBtn').disabled = true; $('fixBtn').disabled = true; $('ownRunBtn').disabled = true;
   $('status').innerHTML = '<span class="pulse"></span>Working…';
-  const es = new EventSource('/api/run?phase=' + phase);
+  const es = new EventSource(url);
   es.addEventListener('status', (ev) => {
     const d = JSON.parse(ev.data);
     $('status').innerHTML = '<span class="pulse"></span>' + d.message;
@@ -247,7 +283,20 @@ function run(phase) {
     for (const n of d.nodes) nodes.set(n.id, { ...(nodes.get(n.id) || {}), ...n });
     render();
     const v = $('verdict');
-    if (d.phase === 'after') {
+    if (d.phase === 'own') {
+      $('fixBtn').style.display = 'none';
+      if (d.summary.nodesDiscovered === 0) {
+        $('status').textContent = 'No MongoDB nodes were reachable at that target — check the host/port, or try the port-scan start.';
+      } else if (d.summary.critical > 0) {
+        $('status').textContent = 'Assessment complete. Click any node for its data and fixes.';
+        v.className = 'bad'; v.style.display = 'block';
+        v.innerHTML = '<b>COMPROMISED — from that entry point.</b> ' + d.summary.nodesDiscovered + ' nodes mapped, ' + d.summary.credentialsHarvested + ' credentials harvested, ' + d.summary.critical + ' critical findings on your cluster.';
+      } else {
+        $('status').textContent = 'Assessment complete. Click any node for its data.';
+        v.className = 'good'; v.style.display = 'block';
+        v.innerHTML = '<b>No critical findings.</b> ' + d.summary.nodesDiscovered + ' nodes mapped, ' + d.summary.credentialsHarvested + ' credentials harvested, ' + d.summary.findings + ' findings total — details in the live feed and per-node panels.';
+      }
+    } else if (d.phase === 'after') {
       $('status').textContent = 'Re-scan complete.';
       v.className = 'good'; v.style.display = 'block';
       v.innerHTML = '<b>SECURE.</b> Same entry points, same scanner — this time it got <b>' + d.summary.credentialsHarvested + ' credentials</b> and <b>' + d.summary.critical + ' critical findings</b>. That is what the fixes are worth.';
@@ -258,18 +307,20 @@ function run(phase) {
       v.innerHTML = '<b>COMPROMISED — from one entry point.</b> ' + d.summary.nodesDiscovered + ' nodes mapped, ' + d.summary.credentialsHarvested + ' credentials harvested, ' + d.summary.critical + ' critical findings. Every one of them is fixable — see for yourself:';
       $('fixBtn').style.display = ''; $('fixBtn').disabled = false;
     }
-    $('runBtn').disabled = false; $('runBtn').textContent = '▶  Run it again';
-    const sb = document.createElement('button');
-    sb.className = 'cta blue'; sb.style.cssText = 'margin-top:12px;padding:10px 18px;font-size:14.5px';
-    sb.textContent = 'Send this result to my dashboard →';
-    sb.addEventListener('click', openSend);
-    v.appendChild(document.createElement('br')); v.appendChild(sb);
+    $('runBtn').disabled = false; $('runBtn').textContent = '▶  Run it again'; $('ownRunBtn').disabled = false;
+    if (v.style.display === 'block') {
+      const sb = document.createElement('button');
+      sb.className = 'cta blue'; sb.style.cssText = 'margin-top:12px;padding:10px 18px;font-size:14.5px';
+      sb.textContent = 'Send this result to my dashboard →';
+      sb.addEventListener('click', openSend);
+      v.appendChild(document.createElement('br')); v.appendChild(sb);
+    }
     es.close();
   });
   es.addEventListener('failed', (ev) => {
     settled = true;
     $('status').textContent = 'Something went wrong: ' + (JSON.parse(ev.data).message || 'unknown error');
-    $('runBtn').disabled = false; es.close();
+    $('runBtn').disabled = false; $('ownRunBtn').disabled = false; es.close();
   });
   es.onerror = () => {
     // A stream that closes without done/failed (e.g. server busy) must not
@@ -280,8 +331,34 @@ function run(phase) {
     }
   };
 }
-$('runBtn').addEventListener('click', () => run('before'));
-$('fixBtn').addEventListener('click', () => run('after'));
+$('runBtn').addEventListener('click', () => run('/api/run?phase=before'));
+$('fixBtn').addEventListener('click', () => run('/api/run?phase=after'));
+
+// ---- own-cluster mode ------------------------------------------------------
+function setTab(own) {
+  $('tabDemo').classList.toggle('active', !own);
+  $('tabOwn').classList.toggle('active', own);
+  $('demoBar').style.display = own ? 'none' : 'flex';
+  $('ownBar').style.display = own ? 'flex' : 'none';
+}
+$('tabDemo').addEventListener('click', () => setTab(false));
+$('tabOwn').addEventListener('click', () => setTab(true));
+$('ownMode').addEventListener('change', () => { $('rangeWrap').style.display = $('ownMode').value === 'scan' ? '' : 'none'; });
+fetch('/api/config').then((r) => r.json()).then((c) => { if (c.demoOnly) { $('tabOwn').style.display = 'none'; } }).catch(() => {});
+$('ownRunBtn').addEventListener('click', async () => {
+  $('ownError').textContent = '';
+  const payload = {
+    host: $('ownHost').value, port: Number($('ownPort').value || 27017), mode: $('ownMode').value,
+    portRange: $('ownRange').value, credUser: $('ownUser').value, credPass: $('ownPass').value,
+    credAuthSource: $('ownAuthDb').value, authorizedExternal: $('ownAuth').checked,
+  };
+  try {
+    const r = await fetch('/api/own-run/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const d = await r.json();
+    if (!r.ok) { $('ownError').textContent = d.error || 'refused'; return; }
+    run('/api/run?own=' + encodeURIComponent(d.id));
+  } catch (e) { $('ownError').textContent = 'could not start: ' + e.message; }
+});
 
 async function openSend() {
   const p = $('sendPanel'); p.style.display = 'block';

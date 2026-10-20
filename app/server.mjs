@@ -19,6 +19,11 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { startLab } from '../lab/lab.mjs';
 import { assess } from '../toolkit/recon.mjs';
+import { assertInScope } from '../toolkit/lib/safety.mjs';
+
+// Hosted-demo mode: the own-cluster form is disabled entirely. A public
+// deployment must never become a scanner other people aim at networks.
+const DEMO_ONLY = process.env.DEMO_ONLY === '1';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const INDEX = readFileSync(join(HERE, 'index.html'), 'utf8');
@@ -40,6 +45,28 @@ function redactRun(payload) {
   for (const c of clone.credentials || []) if ('pass' in c) c.pass = '••• redacted •••';
   for (const n of clone.nodes || []) if (n.accessCred && 'pass' in n.accessCred) n.accessCred.pass = '••• redacted •••';
   return clone;
+}
+
+// Own-cluster runs are started via POST (credentials travel in the POST
+// body, never in a URL), stored under a one-time id in memory only, and
+// deleted the moment the run begins. Nothing is written to disk.
+const pendingOwn = new Map();
+
+async function runOwn(res, p) {
+  const onEvent = (e) => sse(res, 'progress', e);
+  const extraCreds = p.credUser ? [{ user: p.credUser, pass: p.credPass || '', authSource: p.credAuthSource || 'admin' }] : [];
+  const opts = { lab: false, learn: false, quiet: true, onEvent, allowExternal: p.authorizedExternal, extraCreds };
+  if (p.mode === 'scan') {
+    sse(res, 'status', { message: `Scanning ${p.host} ports ${p.portRange} for MongoDB nodes…`, seed: `${p.host} · scan ${p.portRange}` });
+    const json = await assess({ ...opts, discover: p.host, ports: p.portRange });
+    lastRun = { phase: 'own', payload: { generatedAt: json.generatedAt, summary: json.summary, nodes: json.nodes, edges: json.edges, credentials: json.credentials, findings: json.findings } };
+  } else {
+    const seed = `${p.host}:${p.port}`;
+    sse(res, 'status', { message: `One entry point: ${seed}. Reconstructing the cluster from there…`, seed });
+    const json = await assess({ ...opts, seed });
+    lastRun = { phase: 'own', payload: { generatedAt: json.generatedAt, summary: json.summary, nodes: json.nodes, edges: json.edges, credentials: json.credentials, findings: json.findings } };
+  }
+  sse(res, 'done', { phase: 'own', ...lastRun.payload });
 }
 
 async function runPhase(res, phase) {
@@ -105,12 +132,52 @@ const server = createServer(async (req, res) => {
     }
     return;
   }
+  if (url.pathname === '/api/config') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ demoOnly: DEMO_ONLY }));
+    return;
+  }
+  if (url.pathname === '/api/own-run/start' && req.method === 'POST') {
+    if (DEMO_ONLY) { res.writeHead(403, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'own-cluster assessments are disabled in the hosted demo — download the app to scan your own systems' })); return; }
+    let body = '';
+    for await (const chunk of req) body += chunk;
+    try {
+      const p = JSON.parse(body || '{}');
+      const host = String(p.host || '').trim();
+      const port = Math.min(65535, Math.max(1, Number(p.port || 27017)));
+      const mode = p.mode === 'scan' ? 'scan' : 'seed';
+      const portRange = String(p.portRange || '27017-27030').trim();
+      if (!host) throw new Error('host is required');
+      if (mode === 'scan' && !/^\d{1,5}(-\d{1,5})?$/.test(portRange)) throw new Error('port range looks wrong (e.g. 27017-27030)');
+      // Scope is pre-checked here so a refusal is a clean form error, and
+      // re-checked by the engine for every node it pivots to.
+      assertInScope(host, { allowExternal: Boolean(p.authorizedExternal) });
+      const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+      pendingOwn.set(id, {
+        host, port, mode, portRange,
+        credUser: String(p.credUser || ''), credPass: String(p.credPass || ''), credAuthSource: String(p.credAuthSource || 'admin'),
+        authorizedExternal: Boolean(p.authorizedExternal),
+      });
+      setTimeout(() => pendingOwn.delete(id), 60_000).unref();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id }));
+    } catch (err) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: String(err?.message || err) }));
+    }
+    return;
+  }
   if (url.pathname === '/api/run') {
     if (busy) { res.writeHead(409, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'an assessment is already running' })); return; }
+    const ownId = url.searchParams.get('own');
+    const ownParams = ownId ? pendingOwn.get(ownId) : null;
+    if (ownId) pendingOwn.delete(ownId);
     busy = true;
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
     try {
-      await runPhase(res, url.searchParams.get('phase') === 'after' ? 'after' : 'before');
+      if (ownId && !ownParams) sse(res, 'failed', { message: 'that run link expired or was already used — submit the form again' });
+      else if (ownParams) await runOwn(res, ownParams);
+      else await runPhase(res, url.searchParams.get('phase') === 'after' ? 'after' : 'before');
     } catch (err) {
       sse(res, 'failed', { message: String(err?.message || err) });
     } finally {

@@ -3,6 +3,10 @@
 # targets it assesses; the app itself makes no outbound calls at runtime
 # (the mongod binary for the built-in lab is fetched at BUILD time).
 FROM node:24-bookworm-slim
+# The mongod binary mongodb-memory-server downloads (Ubuntu build) links
+# libcurl/libssl/lzma, which the slim image does not ship — without these
+# the lab's mongod dies on start with "libcurl.so.4: cannot open".
+RUN apt-get update && apt-get install -y --no-install-recommends libcurl4 libssl3 liblzma5 && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev

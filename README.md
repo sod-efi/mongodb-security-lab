@@ -25,6 +25,17 @@ land as they are harvested. When it finishes, **Apply hardening &
 re-scan** runs the same scanner against the hardened cluster and the
 picture flips green.
 
+Then switch to the **Assess my own cluster** tab: give it one node of a
+cluster you own (or pick port-scan), optionally a credential, and it
+reconstructs your cluster the same way. Loopback/private targets only,
+unless you explicitly confirm authorization for an external one — the
+scope check runs on every node it pivots to, and credentials are held
+in memory for the run only.
+
+**Hosted demo:** https://mongodb-security-lab-production.up.railway.app
+— the demo cluster only (own-cluster mode is disabled there by design;
+download the app to scan your own systems).
+
 ## The dashboard (optional cloud layer)
 
 ```bash
