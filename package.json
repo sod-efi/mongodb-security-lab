@@ -7,6 +7,7 @@
   "scripts": {
     "app": "node app/server.mjs",
     "dashboard": "node dashboard/server.mjs",
+    "agent": "node agent/agent.mjs",
     "lab:up": "node lab/start-lab.mjs",
     "assess": "node toolkit/mongo-recon.mjs",
     "demo": "node lab/start-lab.mjs --run-demo",

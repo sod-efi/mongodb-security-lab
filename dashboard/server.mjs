@@ -16,8 +16,8 @@ import { dirname, join } from 'node:path';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const INDEX = readFileSync(join(HERE, 'index.html'), 'utf8');
-const DATA = join(HERE, 'data');
-const PORT = Number(process.env.DASH_PORT || 8901);
+const DATA = process.env.DASH_DATA_DIR || join(HERE, 'data');
+const PORT = Number(process.env.DASH_PORT || process.env.PORT || 8901);
 const TOKEN = process.env.DASHBOARD_TOKEN || 'dev-token';
 mkdirSync(DATA, { recursive: true });
 
@@ -108,5 +108,6 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, process.env.HOST || '127.0.0.1', () => {
-  console.log(`mongodb-security-lab dashboard → http://127.0.0.1:${PORT}`);
+  const a = server.address();
+  console.log(`mongodb-security-lab dashboard → http://${a.address}:${a.port} (data: ${DATA})`);
 });

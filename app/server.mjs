@@ -20,6 +20,7 @@ import { dirname, join } from 'node:path';
 import { startLab } from '../lab/lab.mjs';
 import { assess } from '../toolkit/recon.mjs';
 import { assertInScope } from '../toolkit/lib/safety.mjs';
+import { redactRun } from '../toolkit/lib/redact.mjs';
 
 // Hosted-demo mode: the own-cluster form is disabled entirely. A public
 // deployment must never become a scanner other people aim at networks.
@@ -36,16 +37,9 @@ function sse(res, event, data) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
-// The trust contract, in code: this is the ONLY transformation applied
-// before a result may leave the machine, and the UI shows the user the
-// exact redacted payload before sending. Passwords never leave; the
-// dashboard strips them again server-side as defense in depth.
-function redactRun(payload) {
-  const clone = JSON.parse(JSON.stringify(payload));
-  for (const c of clone.credentials || []) if ('pass' in c) c.pass = '••• redacted •••';
-  for (const n of clone.nodes || []) if (n.accessCred && 'pass' in n.accessCred) n.accessCred.pass = '••• redacted •••';
-  return clone;
-}
+// The trust contract lives in toolkit/lib/redact.mjs (shared with the
+// agent): passwords never leave the machine, and the UI shows the user
+// the exact redacted payload before sending.
 
 // Own-cluster runs are started via POST (credentials travel in the POST
 // body, never in a URL), stored under a one-time id in memory only, and

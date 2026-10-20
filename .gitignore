@@ -7,3 +7,5 @@ output/*
 toolkit/.memory/
 
 dashboard/data/
+agent/config.json
+agent/.state.json

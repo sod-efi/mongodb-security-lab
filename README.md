@@ -48,6 +48,23 @@ dashboard strips them again on arrival. The dashboard keeps every run:
 fleet view across estates, critical-findings trend, and a diff between
 consecutive scans (what got fixed, what appeared). Results only — the
 scanner itself never leaves your network.
+Hosted: https://mongodb-security-dashboard-production.up.railway.app
+(token-gated ingest; run history kept on a persistent volume).
+
+**Drift agent:** `agent/agent.mjs` closes the loop — it re-scans your
+clusters on a schedule and sends each result to the dashboard, so drift
+surfaces itself instead of waiting for someone to remember to scan.
+
+```bash
+cp agent/config.example.json agent/config.json   # your targets + dashboard
+npm run agent            # loop on the configured interval
+npm run agent -- --once  # single pass (cron/systemd friendly)
+```
+
+Each pass logs one line per target with the drift vs the last run
+(`critical 5 → 0 · findings +1 / −12`). Credentials in the config are
+used only to authenticate to your own nodes; results are redacted
+before they leave the machine, same contract as the app.
 
 ## Command line
 

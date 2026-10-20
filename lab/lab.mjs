@@ -115,6 +115,33 @@ async function createReplSetWithRetry(opts) {
   throw lastErr;
 }
 
+// mongodb-memory-server flips a node to auth-enforced slightly after it
+// starts answering connections; an assessment launched inside that
+// window sees an auth node as wide open and reports it wrong (observed
+// 2026-10-19: an agent run seconds after lab-up reported Node C as
+// "unauthenticated access" with extra criticals and missing findings).
+// Gate startup on the EXPECTED auth state instead: auth nodes must
+// refuse an anonymous listDatabases, the no-auth foothold must accept
+// one. Poll up to ~45s; on timeout warn loudly and continue.
+async function anonListsDb(port) {
+  const client = new MongoClient(`mongodb://127.0.0.1:${port}/`, { serverSelectionTimeoutMS: 2500, connectTimeoutMS: 2500, directConnection: true });
+  try { await client.connect(); await client.db('admin').command({ listDatabases: 1, nameOnly: true }); return true; }
+  catch { return false; }
+  finally { try { await client.close(); } catch { /* ignore */ } }
+}
+async function waitForAuthStates(expect, log) {
+  const deadline = Date.now() + 45_000;
+  const pending = new Map(expect); // port -> wantAnonDenied
+  while (pending.size && Date.now() < deadline) {
+    for (const [port, wantDenied] of [...pending]) {
+      const listed = await anonListsDb(port);
+      if (listed !== wantDenied) pending.delete(port);
+    }
+    if (pending.size) await new Promise((r) => setTimeout(r, 500));
+  }
+  if (pending.size) log(`WARNING: auth state not settled after 45s on port(s) ${[...pending.keys()].join(', ')} — findings may be off; re-run when the lab is warm`);
+}
+
 export async function startLab({ hardened = false, ports = null, log = () => {} } = {}) {
   const seeds = seedData({ mode: 'local' });
   const servers = [];
@@ -155,6 +182,9 @@ export async function startLab({ hardened = false, ports = null, log = () => {} 
     log(`NODE C: auth, strong unique creds on ${P.C}`);
     servers.push(await standaloneAuth(P.C, HARDENED.C.root, HARDENED.C.extra, seeds.C));
   }
+
+  if (!hardened) await waitForAuthStates(new Map([[P.A, false], [P.A2, false], [P.B, true], [P.C, true]]), log);
+  else await waitForAuthStates(new Map([[P.A, true], [P.B, true], [P.C, true]]), log);
 
   async function teardown() {
     for (const s of servers.slice().reverse()) { try { await s.stop(); } catch { /* ignore */ } }
