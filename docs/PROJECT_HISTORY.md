@@ -51,3 +51,7 @@ shows the trend; `npm run learn:reset` undoes it.
   discovery, exploitation of misconfig, and remediation, not evasion).
 - A nmap/Scapy-based scanner — kept it a pure-Node TCP connect-scan for
   portability and to avoid native dependencies.
+
+## 2026-10-29 — Repo public
+
+At the owner's direction the repo was flipped public on Oct 29, 2026. Licensing stands as recorded: scanner/app/agent/toolkit/lab under BSL 1.1 (converts to Apache 2.0 on Oct 20, 2030; licensor SaveOnDev); the dashboard is proprietary, in-repo for audit only. The hosted demo and the redacted-results dashboard remain on Railway.
